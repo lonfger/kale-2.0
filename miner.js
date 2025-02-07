@@ -6,9 +6,11 @@ import { readFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import {displayBanner} from './banner.js';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import fakeUa from 'fake-useragent';
 
 class KaleidoMiningBot {
-    constructor(wallet, botIndex) {
+    constructor(wallet, botIndex, proxy) {
         this.wallet = wallet;
         this.botIndex = botIndex;
         this.currentEarnings = { total: 0, pending: 0, paid: 0 };
@@ -31,9 +33,11 @@ class KaleidoMiningBot {
             baseURL: 'https://kaleidofinance.xyz/api/testnet',
             headers: {
                 'Content-Type': 'application/json',
-                'Referer': 'https://kaleidofinance.xyz/testnet',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
-            }
+                'Referer': 'https://kaleidofinance.xyz/testnet?ref=4VZHDWAV',
+                'User-Agent': fakeUa(),
+                "Accept-Language": "en,zh-CN;q=0.9,zh;q=0.8,nl;q=0.7,es-419;q=0.6,es;q=0.5,de;q=0.4,pt;q=0.3,en-AU;q=0.2"
+            },
+            httpsAgent: new HttpsProxyAgent(proxy)
         });
     }
 
@@ -197,6 +201,18 @@ export class MiningCoordinator {
         this.isRunning = false;
     }
 
+    async loadProxy() {
+        try {
+            const __dirname = dirname(fileURLToPath(import.meta.url));
+            const data = await readFile(join(__dirname, 'proxy.txt'), 'utf8');
+            return data.split('\n')
+                .map(line => line.trim())
+                .filter(line => !!line);
+        } catch (error) {
+            console.error('Error loading proxy:', error.message);
+            return [];
+        }
+    }
     async loadWallets() {
         try {
             const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -220,17 +236,23 @@ export class MiningCoordinator {
         this.isRunning = true;
         displayBanner();
         const wallets = await this.loadWallets();
+        const proxies = await this.loadProxy();
         
         if (wallets.length === 0) {
             console.log(chalk.red('No valid wallets found in wallets.txt'));
             return;
         }
+        if (proxies.length === 0) {
+            console.log(chalk.red('No valid proxies'));
+            return;
+        }
 
         console.log(chalk.blue(`Loaded ${wallets.length} wallets\n`));
+        console.log(chalk.blue(`Loaded ${proxies.length} wallets\n`));
 
         // Initialize all bots
         this.bots = wallets.map((wallet, index) => {
-            const bot = new KaleidoMiningBot(wallet, index + 1);
+            const bot = new KaleidoMiningBot(wallet, index + 1, proxies[index]);
             bot.initialize();
             return bot;
         });
